@@ -19,12 +19,16 @@ fi
 
 mkdir -p "$DEST"
 
-if [[ -d "$TARGET" ]]; then
-  BACKUP="${DEST}/linkparse.bak-$(date +%Y%m%d-%H%M%S)"
-  mv "$TARGET" "$BACKUP"
+# Keep backups outside modules/: Aurabot loads every folder under it, and a
+# "linkparse.bak-*" folder would fail with "module id must match folder name".
+if [[ -f "${TARGET}/index.mjs" ]]; then
+  BACKUP="${DEST}/.aurabot-backup/linkparse-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$BACKUP"
+  cp "$TARGET"/*.mjs "$BACKUP"/
   echo "Backed up previous copy to: $BACKUP"
 fi
 
+# Copy in place: the running Aurabot reloader watches this folder.
 mkdir -p "$TARGET"
 cp "$SOURCE/index.mjs" "$TARGET/index.mjs"
 cp "$SOURCE/parse.mjs" "$TARGET/parse.mjs"

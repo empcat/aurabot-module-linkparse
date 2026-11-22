@@ -33,13 +33,18 @@ if (-not (Test-Path $Dest)) {
   New-Item -ItemType Directory -Path $Dest -Force | Out-Null
 }
 
-if (Test-Path $target) {
+# Back up the previous copy OUTSIDE the modules dir: Aurabot loads every folder
+# under modules/ and a folder named "linkparse.bak-*" would fail to load.
+if (Test-Path (Join-Path $target "index.mjs")) {
+  $backupRoot = Join-Path $Dest ".aurabot-backup"
   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-  $backup = Join-Path $Dest ("linkparse.bak-" + $stamp)
-  Move-Item -Path $target -Destination $backup
+  $backup = Join-Path $backupRoot ("linkparse-" + $stamp)
+  New-Item -ItemType Directory -Path $backup -Force | Out-Null
+  Copy-Item (Join-Path $target "*.mjs") $backup -Force
   Write-Host "Backed up previous copy to: $backup"
 }
 
+# Copy in place (do not move the folder: the running Aurabot reloader watches it).
 New-Item -ItemType Directory -Path $target -Force | Out-Null
 Copy-Item (Join-Path $source "index.mjs") $target -Force
 Copy-Item (Join-Path $source "parse.mjs") $target -Force

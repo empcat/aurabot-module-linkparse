@@ -153,53 +153,97 @@ function imageList(v) {
   return [...new Set(out)]
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function endpointHost(tpl) {
+  try {
+    return new URL(tpl.replace('{}', '')).host
+  } catch {
+    return tpl.slice(0, 40)
+  }
+}
+
+const isNetworkError = (error) =>
+  error?.name !== 'TimeoutError' && /fetch failed|ECONN|ETIMEDOUT|EAI_AGAIN|socket|network/i.test(String(error?.message || ''))
+
 /** 第三方解析接口：GET，{} 换成编码后的链接 */
 export async function parseViaEndpoints(url, endpoints, { timeoutMs = 25000 } = {}) {
   const errors = []
   for (const tpl of endpoints || []) {
     if (!tpl || !tpl.includes('{}')) continue
+    const host = endpointHost(tpl)
     const target = tpl.replace('{}', encodeURIComponent(url))
-    try {
-      const r = await fetch(target, {
-        headers: { 'user-agent': UA, accept: 'application/json' },
-        signal: AbortSignal.timeout(timeoutMs),
-      })
-      if (!r.ok) {
-        errors.push(`HTTP ${r.status}`)
-        continue
-      }
-      const text = (await r.text()).trim()
-      let j
+    let text = ''
+    let failed = false
+    // 网络层错误（DNS/TLS/连接重置）重试一次；业务错误不重试
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        j = JSON.parse(text)
-      } catch {
-        errors.push('返回的不是 JSON')
-        continue
+        const r = await fetch(target, {
+          headers: { 'user-agent': UA, accept: 'application/json' },
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+        if (!r.ok) {
+          errors.push(`${host}: HTTP ${r.status}`)
+          failed = true
+          break
+        }
+        text = (await r.text()).trim()
+        failed = false
+        break
+      } catch (error) {
+        const net = isNetworkError(error)
+        if (net && attempt === 0) {
+          await sleep(600)
+          continue
+        }
+        errors.push(`${host}: ${error?.name === 'TimeoutError' ? '超时' : String(error?.message || error)}`)
+        failed = true
+        break
       }
-      const data = j?.data && typeof j.data === 'object' ? j.data : j
-      const video = pick(
-        data.url,
-        data.video,
-        data.video_url,
-        data.videoUrl,
-        data.play,
-        data.playUrl,
-        data.mp4,
-        data.hd,
-        data.download_url,
-      )
-      const images = imageList(data.imageUrl ?? data.images ?? data.imgs ?? data.pics ?? data.imagesUrl)
-      const title = pick(data.title, data.desc, data.text, data.caption)
-      const cover = firstImage(data.cover ?? data.coverUrl ?? data.pic)
-      if (video || images.length) {
-        return { ok: true, via: 'endpoint', platform: classify(url), pageUrl: url, title, cover, video, images, raw: data }
-      }
-      errors.push('接口没有给出媒体地址')
-    } catch (error) {
-      errors.push(error?.name === 'TimeoutError' ? '超时' : String(error?.message || error))
     }
+    if (failed || !text) continue
+    let j
+    try {
+      j = JSON.parse(text)
+    } catch {
+      errors.push(`${host}: 返回的不是 JSON`)
+      continue
+    }
+    const data = j?.data && typeof j.data === 'object' ? j.data : j
+    const video = pick(
+      data.url,
+      data.video,
+      data.video_url,
+      data.videoUrl,
+      data.play,
+      data.playUrl,
+      data.mp4,
+      data.hd,
+      data.download_url,
+    )
+    const images = imageList(data.imageUrl ?? data.images ?? data.imgs ?? data.pics ?? data.imagesUrl)
+    const title = pick(data.title, data.desc, data.text, data.caption)
+    const cover = firstImage(data.cover ?? data.coverUrl ?? data.pic)
+    if (video || images.length) {
+      return { ok: true, via: 'endpoint', platform: classify(url), pageUrl: url, title, cover, video, images, raw: data }
+    }
+    // 把接口自己的话带出来（限流/不支持这类原因一看就知道）
+    const reason = pick(j?.msg, j?.message, data?.msg, data?.message) || (j?.code !== undefined ? `code=${j.code}` : '没有媒体地址')
+    errors.push(`${host}: ${reason}`)
   }
   return { ok: false, error: errors.join('；') || '没有可用的解析接口', errors }
+}
+
+/** 同一个链接先按原样试，再按展开后的地址试（有的接口只认其中一种） */
+async function tryEndpoints(urls, endpoints, timeoutMs) {
+  const tried = [...new Set(urls.filter(Boolean))]
+  const errors = new Set()
+  for (const u of tried) {
+    const r = await parseViaEndpoints(u, endpoints, { timeoutMs })
+    if (r.ok) return r
+    for (const e of r.errors || [r.error]) if (e) errors.add(e)
+  }
+  return { ok: false, error: [...errors].join('；') || '没有可用的解析接口', urls: tried }
 }
 
 /** B站官方的公开信息接口（不要签名，拿标题/封面用） */
@@ -287,16 +331,18 @@ export async function parseMedia(inputUrl, { endpoints = [], timeoutMs = 20000 }
     .replace(/[.,;:!?，。；：！？、\]\)】}>"'”’]+$/g, '')
   const pageUrl = await resolveShort(cleaned)
   const platform = classify(pageUrl)
+  // 有的接口只认「原样的分享短链」，有的只认展开后的地址，两种都试
+  const candidates = [cleaned, pageUrl]
   if (platform === 'bilibili') {
     const info = await bilibiliInfo(pageUrl)
     if (info) {
-      const r = await parseViaEndpoints(pageUrl, endpoints, { timeoutMs })
+      const r = await tryEndpoints(candidates, endpoints, timeoutMs)
       if (r.ok) return { ...r, title: info.title || r.title, cover: info.cover || r.cover, pageUrl }
       return { ok: true, via: 'bilibili-api', platform, pageUrl, title: info.title, cover: info.cover, video: '', images: [], note: '只有文字信息' }
     }
   }
   if (platform === 'xiaohongshu') {
-    const r = await parseViaEndpoints(pageUrl, endpoints, { timeoutMs })
+    const r = await tryEndpoints(candidates, endpoints, timeoutMs)
     if (r.ok) return { ...r, platform, pageUrl }
     // 小红书的笔记数据在分享短链的跳转响应里，必须拿原始短链去请求
     let p = await parseXiaohongshu(cleaned, { timeoutMs }).catch((error) => ({ ok: false, error: error.message }))
@@ -306,7 +352,7 @@ export async function parseMedia(inputUrl, { endpoints = [], timeoutMs = 20000 }
     if (p.ok) return p
     return { ...r, platform, pageUrl, error: `${r.error || ''} / ${p.error || ''}` }
   }
-  const r = await parseViaEndpoints(pageUrl, endpoints, { timeoutMs })
+  const r = await tryEndpoints(candidates, endpoints, timeoutMs)
   return { ...r, platform, pageUrl: r.pageUrl || pageUrl }
 }
 

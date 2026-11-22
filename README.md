@@ -130,6 +130,17 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 | 小红书失败 | 日志「页面里没有媒体数据」——需要登录态或页面改版 |
 | 发了两次 | `cooldownSec` 调大；同一链接在同一聊天只会解析一次 |
 
+### 给别人用时常见的报错
+
+| 报错/现象 | 原因与处理 |
+| --- | --- |
+| 扩展页显示「模块加载失败」 | Aurabot 太旧，扩展接口不是 v1；升级到带 `api: 1` 的版本 |
+| `fetch is not defined` | Node < 18；Aurabot 自带的 Node 满足要求，别用系统旧 Node 跑 |
+| `没找到 ffmpeg` | 只在 m3u8/DASH 需要合并时出现；装 ffmpeg 或在设置里填 `ffmpegPath` |
+| `接口没有给出媒体地址` | 公共解析接口挂了/限流；换 `endpoints` 或自己搭接口 |
+| 视频发出去了但对方打不开 | 视频编码/时长被 QQ 限制；把 `videoMaxMB` 调小，让它退化发链接 |
+| 加载了但完全不接管 | 链接域名不在 `platforms`，或聊天不在 Aurabot 白名单 |
+
 日志在 Aurabot 数据目录 `logs/`，按模块 id `linkparse` 过滤。
 
 ## 更新日志

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { mkdir, stat, unlink, readdir } from 'node:fs/promises'
-import { createWriteStream, existsSync } from 'node:fs'
+import { createWriteStream } from 'node:fs'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { execFile } from 'node:child_process'
@@ -29,7 +29,7 @@ const endpointList = (s) =>
 export default {
   id: 'linkparse',
   name: '链接解析',
-  version: '1.0.0',
+  version: '1.0.2',
   api: 1,
   description: '聊天里出现视频/图集分享链接时，解析成直链发出来（B站/抖音/快手/微博/小红书/AcFun/小黑盒）',
 
@@ -198,11 +198,13 @@ export default {
         api.log.warn(`本机文件发送失败（${error.message}），改用长超时重试`)
         const cfg = api.config()
         if (!cfg.enabled || cfg.dryRun) throw error
+        const onebot = api.core?.onebot
+        if (!onebot?.call) throw error
         const [kind, id] = String(chatId).split(':')
         const num = Number(id)
         const action = kind === 'group' ? 'send_group_msg' : 'send_private_msg'
         const params = kind === 'group' ? { group_id: num, message: seg } : { user_id: num, message: seg }
-        await api.core.onebot.call(action, params, { timeoutMs: 180000 })
+        await onebot.call(action, params, { timeoutMs: 180000 })
       }
     }
 
@@ -246,6 +248,7 @@ export default {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         const len = Number(r.headers.get('content-length')) || 0
         if (len && len > maxBytes) throw new Error(`视频 ${humanSize(len)} 超过上限`)
+        if (!r.body) throw new Error('响应没有内容')
         await pipeline(Readable.fromWeb(r.body), createWriteStream(file))
       }
 
