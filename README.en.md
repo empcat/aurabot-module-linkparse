@@ -38,13 +38,13 @@ Modules live in:
 - or `$DSH_HOME/plugins-data/aurabot/modules/`
 
 ```powershell
-git clone https://github.com/<you>/aurabot-module-linkparse.git
+git clone https://github.com/empcat/aurabot-module-linkparse.git
 cd aurabot-module-linkparse
 powershell -ExecutionPolicy Bypass -File .\install.ps1        # -Uninstall to remove
 ```
 
 ```bash
-git clone https://github.com/<you>/aurabot-module-linkparse.git
+git clone https://github.com/empcat/aurabot-module-linkparse.git
 cd aurabot-module-linkparse
 bash ./install.sh
 ```

@@ -41,14 +41,14 @@
 
 ```powershell
 # Windows
-git clone https://github.com/<you>/aurabot-module-linkparse.git
+git clone https://github.com/empcat/aurabot-module-linkparse.git
 cd aurabot-module-linkparse
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ```bash
 # Linux / macOS
-git clone https://github.com/<you>/aurabot-module-linkparse.git
+git clone https://github.com/empcat/aurabot-module-linkparse.git
 cd aurabot-module-linkparse
 bash ./install.sh
 ```
